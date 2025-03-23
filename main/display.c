@@ -10,8 +10,6 @@
 
 #include "display.h"
 
-const char *TAG = "ODroid firmware";
-
 esp_lcd_panel_handle_t panel_handle = NULL;
 esp_lcd_panel_io_handle_t panel_io_handle = NULL;
 
@@ -121,13 +119,13 @@ void ili9341_init()
     esp_lcd_panel_disp_on_off(panel_handle, true);
 #endif
 
-    ESP_LOGI(TAG, "LCD Initialized.");
+    ESP_LOGI(__func__, "LCD Initialized.");
 
 #ifndef CONFIG_IDF_TARGET_ESP32P4
     // Allocate RGB565 buffer in IRAM
     rgb565_buffer = heap_caps_malloc(SCREEN_WIDTH * max_chunk_height * sizeof(uint16_t), MALLOC_CAP_32BIT | MALLOC_CAP_INTERNAL);
     if (!rgb565_buffer) {
-        ESP_LOGE(TAG, "Failed to create LCD RGB565 buffer\n");
+        ESP_LOGE(__func__, "Failed to create LCD RGB565 buffer\n");
         return;
     }
 #endif
@@ -135,7 +133,7 @@ void ili9341_init()
     // Create a semaphore to synchronize LCD transactions
     lcd_semaphore = xSemaphoreCreateBinary();
     if (!lcd_semaphore) {
-        ESP_LOGE(TAG, "Failed to create LCD semaphore\n");
+        ESP_LOGE(__func__, "Failed to create LCD semaphore\n");
         return;
     }
 
@@ -154,7 +152,7 @@ void ili9341_init()
         ppa_out_buf_size = (SCREEN_WIDTH * scale_factor) * (max_chunk_height * scale_factor) * sizeof(uint16_t);  // 2x scaling
         ppa_out_buf = heap_caps_malloc(ppa_out_buf_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
         if (!ppa_out_buf) {
-            ESP_LOGE(TAG, "Failed to allocate PPA output buffer")
+            ESP_LOGE(__func__, "Failed to allocate PPA output buffer")
             return;
         }
     }
@@ -168,5 +166,5 @@ void ili9341_init()
 #endif
 #endif
 
-    ESP_LOGI(TAG, "LCD Buffer and event callbacks created.");
+    ESP_LOGI(__func__, "LCD Buffer and event callbacks created.");
 }
