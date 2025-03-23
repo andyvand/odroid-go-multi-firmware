@@ -2,7 +2,7 @@
 
 #include "esp_err.h"
 
-#define SDCARD_BASE_PATH "/sd"
+#define SDCARD_BASE_PATH CONFIG_BSP_SD_MOUNT_POINT
 
 esp_err_t odroid_sdcard_open(void);
 esp_err_t odroid_sdcard_close(void);

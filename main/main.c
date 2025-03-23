@@ -390,7 +390,10 @@ static void *safe_alloc(size_t size)
 
 static void cleanup_and_restart(void)
 {
+#if CONFIG_HW_ODROID_GO
     gpio_set_direction(GPIO_NUM_2, GPIO_MODE_INPUT);
+#endif
+
     odroid_sdcard_close();
     nvs_close(nvs_h);
     nvs_flash_deinit_partition(MFW_NVS_PARTITION);
@@ -1479,10 +1482,14 @@ static void start_install(void)
 
 void app_main(void)
 {
+    esp_log_level_set("*", ESP_LOG_INFO);
+
     printf("\n\n############### odroid-go-multi-firmware (Ver: "PROJECT_VER") ###############\n\n");
 
+#if CONFIG_HW_ODROID_GO
     gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
     SET_STATUS_LED(1);
+#endif
 
     // Has to be before LCD
     sdcardret = odroid_sdcard_open();
@@ -1491,7 +1498,9 @@ void app_main(void)
 
     UG_Init(&gui, pset, SCREEN_WIDTH, SCREEN_HEIGHT);
 
+#if CONFIG_HW_ODROID_GO
     SET_STATUS_LED(0);
+#endif
 
     // Start the installation process if we didn't boot from the factory app partition
     if (esp_ota_get_running_partition()->subtype != ESP_PARTITION_SUBTYPE_APP_FACTORY)
