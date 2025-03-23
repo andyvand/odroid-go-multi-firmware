@@ -2,7 +2,9 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <driver/gpio.h>
-#include <driver/adc.h>
+#include <esp_adc/adc_oneshot.h>
+#include <esp_adc/adc_cali.h>
+#include <esp_adc/adc_cali_scheme.h>
 #include <driver/i2c.h>
 #include <esp_log.h>
 
@@ -35,6 +37,7 @@ fail:
     return false;
 }
 #else
+#if CONFIG_HW_ODROID_GO
 #define ODROID_GAMEPAD_IO_X ADC1_CHANNEL_6
 #define ODROID_GAMEPAD_IO_Y ADC1_CHANNEL_7
 #define ODROID_GAMEPAD_IO_SELECT GPIO_NUM_27
@@ -43,10 +46,32 @@ fail:
 #define ODROID_GAMEPAD_IO_B GPIO_NUM_33
 #define ODROID_GAMEPAD_IO_MENU GPIO_NUM_13
 #define ODROID_GAMEPAD_IO_VOLUME GPIO_NUM_0
+#else
+#define ODROID_GAMEPAD_IO_UP GPIO_NUM_1
+#define ODROID_GAMEPAD_IO_DOWN GPIO_NUM_2
+#define ODROID_GAMEPAD_IO_LEFT GPIO_NUM_3
+#define ODROID_GAMEPAD_IO_RIGHT GPIO_NUM_4
+#define ODROID_GAMEPAD_IO_SELECT GPIO_NUM_38
+#define ODROID_GAMEPAD_IO_START GPIO_NUM_37
+#define ODROID_GAMEPAD_IO_A GPIO_NUM_5
+#define ODROID_GAMEPAD_IO_B GPIO_NUM_6
+#define ODROID_GAMEPAD_IO_MENU GPIO_NUM_39
+#define ODROID_GAMEPAD_IO_VOLUME -1
+#endif
+#endif
+
+#if CONFIG_HW_ODROID_GO
+adc_oneshot_unit_handle_t adc1_handle;
+adc_oneshot_unit_init_cfg_t init_config1 = {
+    .unit_id = ADC_UNIT_1,
+};
+adc_oneshot_chan_cfg_t config = {
+    .atten = ADC_ATTEN_DB_12,
+    .bitwidth = ADC_BITWIDTH_12,
+};
 #endif
 
 static uint32_t gamepad_state = 0;
-
 
 uint32_t input_read_raw(void)
 {
@@ -70,8 +95,12 @@ uint32_t input_read_raw(void)
         if (buttons & (1 << 7)) state |= (1 << ODROID_INPUT_B);
     }
 #else
-    int joyX = adc1_get_raw(ODROID_GAMEPAD_IO_X);
-    int joyY = adc1_get_raw(ODROID_GAMEPAD_IO_Y);
+#if CONFIG_HW_ODROID_GO
+    int joyX = 0;
+    int joyY = 0;
+
+    adc_oneshot_read(adc1_handle, ODROID_GAMEPAD_IO_X, &joyX);
+    adc_oneshot_read(adc1_handle, ODROID_GAMEPAD_IO_Y, &joyY);
 
     if (joyX > 2048 + 1024)
         state |= (1 << ODROID_INPUT_LEFT);
@@ -82,13 +111,37 @@ uint32_t input_read_raw(void)
         state |= (1 << ODROID_INPUT_UP);
     else if (joyY > 1024)
         state |= (1 << ODROID_INPUT_DOWN);
+#else
+    if (ODROID_GAMEPAD_IO_UP != -1)
+        state |= (!gpio_get_level(ODROID_GAMEPAD_IO_UP)) ? (1 << ODROID_INPUT_UP) : 0;
 
-    state |= (!gpio_get_level(ODROID_GAMEPAD_IO_SELECT)) ? (1 << ODROID_INPUT_SELECT) : 0;
-    state |= (!gpio_get_level(ODROID_GAMEPAD_IO_START)) ? (1 << ODROID_INPUT_START) : 0;
-    state |= (!gpio_get_level(ODROID_GAMEPAD_IO_A)) ? (1 << ODROID_INPUT_A) : 0;
-    state |= (!gpio_get_level(ODROID_GAMEPAD_IO_B)) ? (1 << ODROID_INPUT_B) : 0;
-    state |= (!gpio_get_level(ODROID_GAMEPAD_IO_MENU)) ? (1 << ODROID_INPUT_MENU) : 0;
-    state |= (!gpio_get_level(ODROID_GAMEPAD_IO_VOLUME)) ? (1 << ODROID_INPUT_VOLUME) : 0;
+    if (ODROID_GAMEPAD_IO_DOWN != -1)
+        state |= (!gpio_get_level(ODROID_GAMEPAD_IO_DOWN)) ? (1 << ODROID_INPUT_DOWN) : 0;
+
+    if (ODROID_GAMEPAD_IO_LEFT != -1)
+        state |= (!gpio_get_level(ODROID_GAMEPAD_IO_LEFT)) ? (1 << ODROID_INPUT_LEFT) : 0;
+
+    if (ODROID_GAMEPAD_IO_RIGHT != -1)
+        state |= (!gpio_get_level(ODROID_GAMEPAD_IO_RIGHT)) ? (1 << ODROID_INPUT_RIGHT) : 0;
+#endif
+
+    if (ODROID_GAMEPAD_IO_SELECT != -1)
+        state |= (!gpio_get_level(ODROID_GAMEPAD_IO_SELECT)) ? (1 << ODROID_INPUT_SELECT) : 0;
+
+    if (ODROID_GAMEPAD_IO_START != -1)
+        state |= (!gpio_get_level(ODROID_GAMEPAD_IO_START)) ? (1 << ODROID_INPUT_START) : 0;
+
+    if (ODROID_GAMEPAD_IO_A != -1)
+        state |= (!gpio_get_level(ODROID_GAMEPAD_IO_A)) ? (1 << ODROID_INPUT_A) : 0;
+
+    if (ODROID_GAMEPAD_IO_B != -1)
+        state |= (!gpio_get_level(ODROID_GAMEPAD_IO_B)) ? (1 << ODROID_INPUT_B) : 0;
+
+    if (ODROID_GAMEPAD_IO_MENU != -1)
+        state |= (!gpio_get_level(ODROID_GAMEPAD_IO_MENU)) ? (1 << ODROID_INPUT_MENU) : 0;
+
+    if (ODROID_GAMEPAD_IO_VOLUME != -1)
+        state |= (!gpio_get_level(ODROID_GAMEPAD_IO_VOLUME)) ? (1 << ODROID_INPUT_VOLUME) : 0;
 #endif
 
     return state;
@@ -181,25 +234,71 @@ void input_init(void)
     ESP_LOGI(__func__, "I2C driver ready (SDA:%d SCL:%d).\n", i2c_config.sda_io_num, i2c_config.scl_io_num);
     fail:
 #else
-    gpio_set_direction(ODROID_GAMEPAD_IO_SELECT, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(ODROID_GAMEPAD_IO_SELECT, GPIO_PULLUP_ONLY);
+#if CONFIG_HW_ODROID_GO
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ODROID_GAMEPAD_IO_X, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ODROID_GAMEPAD_IO_Y, &config));
+#else
+    if (ODROID_GAMEPAD_IO_UP != -1)
+    {
+        gpio_set_direction(ODROID_GAMEPAD_IO_UP, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(ODROID_GAMEPAD_IO_UP, GPIO_PULLUP_ONLY);
+    }
 
-    gpio_set_direction(ODROID_GAMEPAD_IO_START, GPIO_MODE_INPUT);
+    if (ODROID_GAMEPAD_IO_DOWN != -1)
+    {
+        gpio_set_direction(ODROID_GAMEPAD_IO_DOWN, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(ODROID_GAMEPAD_IO_DOWN, GPIO_PULLUP_ONLY);
+    }
 
-    gpio_set_direction(ODROID_GAMEPAD_IO_A, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(ODROID_GAMEPAD_IO_A, GPIO_PULLUP_ONLY);
+    if (ODROID_GAMEPAD_IO_LEFT != -1)
+    {
+        gpio_set_direction(ODROID_GAMEPAD_IO_LEFT, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(ODROID_GAMEPAD_IO_LEFT, GPIO_PULLUP_ONLY);
+    }
 
-    gpio_set_direction(ODROID_GAMEPAD_IO_B, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(ODROID_GAMEPAD_IO_B, GPIO_PULLUP_ONLY);
+    if (ODROID_GAMEPAD_IO_RIGHT != -1)
+    {
+        gpio_set_direction(ODROID_GAMEPAD_IO_RIGHT, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(ODROID_GAMEPAD_IO_RIGHT, GPIO_PULLUP_ONLY);
+    }
+#endif
 
-    adc1_config_width(ADC_WIDTH_12Bit);
-    adc1_config_channel_atten(ODROID_GAMEPAD_IO_X, ADC_ATTEN_11db);
-    adc1_config_channel_atten(ODROID_GAMEPAD_IO_Y, ADC_ATTEN_11db);
+    if (ODROID_GAMEPAD_IO_SELECT != -1)
+    {
+        gpio_set_direction(ODROID_GAMEPAD_IO_SELECT, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(ODROID_GAMEPAD_IO_SELECT, GPIO_PULLUP_ONLY);
+    }
 
-    gpio_set_direction(ODROID_GAMEPAD_IO_MENU, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(ODROID_GAMEPAD_IO_MENU, GPIO_PULLUP_ONLY);
+    if (ODROID_GAMEPAD_IO_START != -1)
+    {
+        gpio_set_direction(ODROID_GAMEPAD_IO_START, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(ODROID_GAMEPAD_IO_START, GPIO_PULLUP_ONLY);
+    }
 
-    gpio_set_direction(ODROID_GAMEPAD_IO_VOLUME, GPIO_MODE_INPUT);
+    if (ODROID_GAMEPAD_IO_A != -1)
+    {
+        gpio_set_direction(ODROID_GAMEPAD_IO_A, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(ODROID_GAMEPAD_IO_A, GPIO_PULLUP_ONLY);
+    }
+
+    if (ODROID_GAMEPAD_IO_B != -1)
+    {
+        gpio_set_direction(ODROID_GAMEPAD_IO_B, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(ODROID_GAMEPAD_IO_B, GPIO_PULLUP_ONLY);
+    }
+
+    if (ODROID_GAMEPAD_IO_MENU != -1)
+    {
+        gpio_set_direction(ODROID_GAMEPAD_IO_MENU, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(ODROID_GAMEPAD_IO_MENU, GPIO_PULLUP_ONLY);
+    }
+
+    if (ODROID_GAMEPAD_IO_VOLUME != -1)
+    {
+        gpio_set_direction(ODROID_GAMEPAD_IO_VOLUME, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(ODROID_GAMEPAD_IO_VOLUME, GPIO_PULLUP_ONLY);
+    }
 #endif
 
     // Start background polling

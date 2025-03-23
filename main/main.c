@@ -1,4 +1,17 @@
+#include <dirent.h>
+#include <limits.h>
+#include <string.h>
+#include <strings.h>
+#include <math.h>
+#include <assert.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include <freertos/FreeRTOS.h>
+#include <esp_flash.h>
 #include <esp_system.h>
 #include <esp_event.h>
 #include <esp_adc_cal.h>
@@ -12,16 +25,11 @@
 #include <driver/gpio.h>
 #include <driver/adc.h>
 
-#if defined(ESP_IDF_VERSION_MAJOR) && ESP_IDF_VERSION_MAJOR >= 4
+/*#if defined(ESP_IDF_VERSION_MAJOR) && ESP_IDF_VERSION_MAJOR >= 4
 #include <esp32/rom/crc.h>
-#else
+#else*/
 #include <rom/crc.h>
-#endif
-
-#include <string.h>
-#include <strings.h>
-#include <stdlib.h>
-#include <math.h>
+//#endif
 
 #include "sdcard.h"
 #include "display.h"
@@ -182,12 +190,12 @@ static void DisplayIndicators(int page, int totalPages)
     UG_SetForecolor(0x8C51);
 
     // Page indicator
-    sprintf(tempstring, "%d/%d", page, totalPages);
+    snprintf(tempstring, sizeof(tempstring), "%d/%d", page, totalPages);
     UG_PutString(4, 4, tempstring);
 
     // Battery indicator
     int percent = (read_battery() - BATTERY_VMIN) / (BATTERY_VMAX - BATTERY_VMIN) * 100.f;
-    sprintf(tempstring, "%d%%", RG_MIN(100, RG_MAX(0, percent)));
+    snprintf(tempstring, sizeof(tempstring), "%d%%", RG_MIN(100, RG_MAX(0, percent)));
     UG_PutString(SCREEN_WIDTH - (9 * strlen(tempstring)) - 4, 4, tempstring);
 }
 
@@ -279,6 +287,7 @@ static void DisplayRow(int line, const char *line1, const char *line2, uint16_t 
 //---------------
 static float read_battery(void)
 {
+#if CONFIG_HW_ODROID_GO
     static esp_adc_cal_characteristics_t adc_cal;
     static float batteryVoltage = -1;
 
@@ -294,6 +303,9 @@ static float read_battery(void)
     batteryVoltage /= 2;
 
     return batteryVoltage;
+#else
+    return BATTERY_VMAX;
+#endif
 }
 
 static void panic_abort(const char *reason)
@@ -450,7 +462,7 @@ static void write_partition_table(const odroid_app_t *app)
     esp_partition_info_t partitionTable[ESP_PARTITION_TABLE_MAX_ENTRIES];
     size_t nextPart = 0;
 
-    if (spi_flash_read(ESP_PARTITION_TABLE_OFFSET, &partitionTable, sizeof(partitionTable)) != ESP_OK)
+    if (esp_flash_read(NULL, &partitionTable, ESP_PARTITION_TABLE_OFFSET, sizeof(partitionTable)) != ESP_OK)
     {
         panic_abort("PART TABLE READ ERROR");
     }
@@ -497,12 +509,12 @@ static void write_partition_table(const odroid_app_t *app)
         memset(&partitionTable[nextPart++], 0xFF, sizeof(esp_partition_info_t));
     }
 
-    if (spi_flash_erase_range(ESP_PARTITION_TABLE_OFFSET, ERASE_BLOCK_SIZE) != ESP_OK)
+    if (esp_flash_erase_region(NULL, ESP_PARTITION_TABLE_OFFSET, ERASE_BLOCK_SIZE) != ESP_OK)
     {
         panic_abort("PART TABLE ERASE ERROR");
     }
 
-    if (spi_flash_write(ESP_PARTITION_TABLE_OFFSET, partitionTable, sizeof(partitionTable)) != ESP_OK)
+    if (esp_flash_write(NULL, partitionTable, ESP_PARTITION_TABLE_OFFSET, sizeof(partitionTable)) != ESP_OK)
     {
         panic_abort("PART TABLE WRITE ERROR");
     }
@@ -543,8 +555,8 @@ static void boot_application(odroid_app_t *app)
 #else
     uint32_t ota_data[8] = {1, 0, 0, 0, 0, 0, 0xFFFFFFFFU, 0x4743989A};
 
-    if (spi_flash_erase_range(0xD000, 0x1000) != ESP_OK
-        || spi_flash_write(0xD000, &ota_data, sizeof(ota_data)) != ESP_OK)
+    if (esp_flash_erase_region(NULL, 0xD000, 0x1000) != ESP_OK
+        || esp_flash_write(NULL, &ota_data, 0xD000, sizeof(ota_data)) != ESP_OK)
     {
         panic_abort("BOOT SET ERROR");
     }
@@ -574,7 +586,7 @@ static void defrag_flash(void)
         }
     }
 
-    sprintf(tempstring, "Moving: %.2f MB", (float)totalBytesToMove / 1024 / 1024);
+    snprintf(tempstring, sizeof(tempstring), "Moving: %.2f MB", (float)totalBytesToMove / 1024 / 1024);
     DisplayPage("Defragmenting flash", tempstring);
     DisplayHeader("Making some space...");
     UpdateDisplay();
@@ -595,13 +607,13 @@ static void defrag_flash(void)
                 ESP_LOGI(__func__, "Moving 0x%x to 0x%x", oldOffset + i, newOffset + i);
 
                 DisplayMessage("Defragmenting ... (E)");
-                spi_flash_erase_range(newOffset + i, FLASH_BLOCK_SIZE);
+                esp_flash_erase_region(NULL, newOffset + i, FLASH_BLOCK_SIZE);
 
                 DisplayMessage("Defragmenting ... (R)");
-                spi_flash_read(oldOffset + i, dataBuffer, FLASH_BLOCK_SIZE);
+                esp_flash_read(NULL, dataBuffer, oldOffset + i, FLASH_BLOCK_SIZE);
 
                 DisplayMessage("Defragmenting ... (W)");
-                spi_flash_write(newOffset + i, dataBuffer, FLASH_BLOCK_SIZE);
+                esp_flash_write(NULL, dataBuffer, newOffset + i, FLASH_BLOCK_SIZE);
 
                 totalBytesMoved += FLASH_BLOCK_SIZE;
 
@@ -625,8 +637,10 @@ static void defrag_flash(void)
 
 static void find_free_blocks(odroid_flash_block_t **blocks, size_t *count, size_t *totalFreeSpace)
 {
-    size_t flashSize = spi_flash_get_chip_size();
+    size_t flashSize = 0;
     size_t previousBlockEnd = firstAppOffset;
+
+    esp_flash_get_size(NULL, (uint32_t *)&flashSize);
 
     *blocks = safe_alloc(sizeof(odroid_flash_block_t) * 32);
     *totalFreeSpace = 0;
@@ -814,7 +828,7 @@ static void flash_firmware(const char *fullPath)
     ESP_LOGI(__func__, "Destination: 0x%x", currentFlashAddress);
     ESP_LOGI(__func__, "Description: '%s'", app->description);
 
-    sprintf(tempstring, "Destination: 0x%x", currentFlashAddress);
+    snprintf(tempstring, sizeof(tempstring), "Destination: 0x%x", currentFlashAddress);
     DisplayPage("Install Application", tempstring);
     DisplayHeader(app->description);
     DisplayMessage("[START]");
@@ -887,7 +901,7 @@ static void flash_firmware(const char *fullPath)
         SET_STATUS_LED(0);
 
         // Erase target partition space
-        sprintf(tempstring, "Erasing ... (%d/%d)", i+1, app->parts_count);
+        snprintf(tempstring, sizeof(tempstring), "Erasing ... (%d/%d)", i+1, app->parts_count);
         ESP_LOGI(__func__, "%s", tempstring);
 
         DisplayProgress(0);
@@ -896,9 +910,9 @@ static void flash_firmware(const char *fullPath)
         int eraseBlocks = slot->length / ERASE_BLOCK_SIZE;
         if (eraseBlocks * ERASE_BLOCK_SIZE < slot->length) ++eraseBlocks;
 
-        if (spi_flash_erase_range(currentFlashAddress, eraseBlocks * ERASE_BLOCK_SIZE) != ESP_OK)
+        if (esp_flash_erase_region(NULL, currentFlashAddress, eraseBlocks * ERASE_BLOCK_SIZE) != ESP_OK)
         {
-            ESP_LOGE(__func__, "spi_flash_erase_range failed. eraseBlocks=%d", eraseBlocks);
+            ESP_LOGE(__func__, "esp_flash_erase_region failed. eraseBlocks=%d", eraseBlocks);
             panic_abort("ERASE ERROR");
         }
 
@@ -912,7 +926,7 @@ static void flash_firmware(const char *fullPath)
             int totalCount = 0;
             for (int offset = 0; offset < slot->dataLength; offset += FLASH_BLOCK_SIZE)
             {
-                sprintf(tempstring, "Writing (%d/%d)", i+1, app->parts_count);
+                snprintf(tempstring, sizeof(tempstring), "Writing (%d/%d)", i+1, app->parts_count);
                 ESP_LOGI(__func__, "%s", tempstring);
                 DisplayProgress((float)offset / (float)(slot->dataLength - FLASH_BLOCK_SIZE) * 100.0f);
                 DisplayMessage(tempstring);
@@ -930,9 +944,9 @@ static void flash_firmware(const char *fullPath)
                 }
 
                 // flash
-                if (spi_flash_write(currentFlashAddress + offset, dataBuffer, count) != ESP_OK)
+                if (esp_flash_write(NULL, dataBuffer, currentFlashAddress + offset, count) != ESP_OK)
         		{
-        			ESP_LOGE(__func__, "spi_flash_write failed. address=%#08x", currentFlashAddress + offset);
+        			ESP_LOGE(__func__, "esp_flash_write failed. address=%#08x", currentFlashAddress + offset);
                     panic_abort("WRITE ERROR");
         		}
 
@@ -1015,7 +1029,7 @@ static char *ui_choose_file(const char *path)
         find_free_blocks(&blocks, &count, &totalFreeSpace);
         free(blocks);
 
-        sprintf(tempstring, "Free space: %.2fMB (%d block)", (double)totalFreeSpace / 1024 / 1024, count);
+        snprintf(tempstring, sizeof(tempstring), "Free space: %.2fMB (%d block)", (double)totalFreeSpace / 1024 / 1024, count);
 
         DisplayPage("Select a file", tempstring);
         DisplayIndicators(page / ITEM_COUNT + 1, (int)ceil((double)fileCount / ITEM_COUNT));
@@ -1025,11 +1039,11 @@ static char *ui_choose_file(const char *path)
             char *fileName = files[page + line];
             bool selected = (page + line) == currentItem;
 
-            sprintf(tempstring, "%s/%s", FIRMWARE_PATH, fileName);
+            snprintf(tempstring, sizeof(tempstring), "%s/%s", FIRMWARE_PATH, fileName);
 
             odroid_fw_t *fw = firmware_get_info(tempstring);
             if (fw) {
-                sprintf(tempstring, "%.2f MB", (float)fw->flashSize / 1024 / 1024);
+                snprintf(tempstring, sizeof(tempstring), "%.2f MB", (float)fw->flashSize / 1024 / 1024);
                 DisplayRow(line, fileName, tempstring, C_GRAY, fw->header.tile, selected);
             } else {
                 DisplayRow(line, fileName, "Invalid firmware", C_RED, NULL, selected);
@@ -1070,9 +1084,9 @@ static char *ui_choose_file(const char *path)
                 size_t fullPathLength = strlen(path) + 1 + strlen(files[currentItem]) + 1;
                 char *fullPath = safe_alloc(fullPathLength);
 
-                strcpy(fullPath, path);
-                strcat(fullPath, "/");
-                strcat(fullPath, files[currentItem]);
+                strncpy(fullPath, path, fullPathLength);
+                strncat(fullPath, "/", fullPathLength);
+                strncat(fullPath, files[currentItem], fullPathLength);
 
                 result = fullPath;
                 break;
@@ -1170,7 +1184,7 @@ static void ui_draw_app_page(int currentItem)
     for (int line = 0; line < ITEM_COUNT && (page + line) < apps_count; ++line)
     {
         odroid_app_t *app = &apps[page + line];
-        sprintf(tempstring, "0x%x - 0x%x", app->startOffset, app->endOffset);
+        snprintf(tempstring, sizeof(tempstring), "0x%lx - 0x%lx", app->startOffset, app->endOffset);
         DisplayRow(line, app->description, tempstring, C_GRAY, app->tile, (page + line) == currentItem);
     }
 
@@ -1193,7 +1207,7 @@ static void start_normal(void)
         nvs_flash_erase();
         nvs_open("settings", NVS_READWRITE, &nvs_h);
     }
-    nvs_get_i32(nvs_h, "display_order", &displayOrder);
+    nvs_get_i32(nvs_h, "display_order", (int32_t *)&displayOrder);
 
     read_app_table();
     sort_app_table(displayOrder);
@@ -1244,7 +1258,7 @@ static void start_normal(void)
 
                     char descriptions[][16] = {"OFFSET", "INSTALL", "NAME"};
                     char order[][5] = {"ASC", "DESC"};
-                    sprintf(tempstring, "NOW SORTING BY %s %s", descriptions[(displayOrder >> 1)], order[displayOrder & 1]);
+                    snprintf(tempstring, sizeof(tempstring), "NOW SORTING BY %s %s", descriptions[(displayOrder >> 1)], order[displayOrder & 1]);
 
                     DisplayNotification(tempstring);
                     queuedBtn = input_wait_for_button_press(200);
@@ -1291,7 +1305,7 @@ static void start_normal(void)
                         odroid_partition_t *part = &app->parts[i];
                         if (part->type == 1 && part->subtype == ESP_PARTITION_SUBTYPE_DATA_NVS)
                         {
-                            if (spi_flash_erase_range(offset, part->length) == ESP_OK)
+                            if (esp_flash_erase_region(NULL, offset, part->length) == ESP_OK)
                                 DisplayNotification("Operation successful!");
                             else
                                 DisplayNotification("An error has occurred!");
@@ -1320,10 +1334,11 @@ static void start_normal(void)
                         sdcardret = odroid_sdcard_open();
                     }
                     if (sdcardret == ESP_OK) {
-                        char path[32] = SDCARD_BASE_PATH "/odroid";
-                        mkdir(path, 0777);
-                        strcat(path, "/firmware");
-                        mkdir(path, 0777);
+                        char path1[32] = SDCARD_BASE_PATH "/odroid";
+                        char path2[64];
+                        mkdir(path1, 0777);
+                        snprintf(path2, sizeof(path2), "%s/firmware", path1);
+                        mkdir(path2, 0777);
                         DisplayMessage("Card formatted!");
                     } else {
                         DisplayError("Format failed!");
@@ -1356,7 +1371,7 @@ static void start_install(void)
     for (int i = 5; i > 0; --i)
     {
         char tempstring[128];
-        sprintf(tempstring, "Installing in %d seconds...", i);
+        snprintf(tempstring, sizeof(tempstring), "Installing in %d seconds...", i);
         DisplayMessage(tempstring);
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
@@ -1379,7 +1394,7 @@ static void start_install(void)
     void *data = safe_alloc(size);
 
     // We must copy the data to RAM first because our data address space is full, can't mmap
-    if (spi_flash_read(payload->address, data, payload->size) != ESP_OK)
+    if (esp_flash_read(NULL, data, payload->address, payload->size) != ESP_OK)
     {
         panic_abort("PART TABLE WRITE ERROR");
     }
@@ -1387,12 +1402,12 @@ static void start_install(void)
     // It would be nicer to do the erase/write in blocks to be able to show progress
     // but, because of the shared SPI bus, I think it is safer to do it in one go.
 
-    if (spi_flash_erase_range(0x0, size) != ESP_OK)
+    if (esp_flash_erase_region(NULL, 0x0, size) != ESP_OK)
     {
         panic_abort("PART TABLE ERASE ERROR");
     }
 
-    if (spi_flash_write(0x0, data, size) != ESP_OK)
+    if (esp_flash_write(NULL, data, 0x0, size) != ESP_OK)
     {
         panic_abort("PART TABLE WRITE ERROR");
     }
