@@ -38,8 +38,8 @@ fail:
 }
 #else
 #if CONFIG_HW_ODROID_GO
-#define ODROID_GAMEPAD_IO_X ADC1_CHANNEL_6
-#define ODROID_GAMEPAD_IO_Y ADC1_CHANNEL_7
+#define ODROID_GAMEPAD_IO_X ADC_CHANNEL_6
+#define ODROID_GAMEPAD_IO_Y ADC_CHANNEL_7
 #define ODROID_GAMEPAD_IO_SELECT GPIO_NUM_27
 #define ODROID_GAMEPAD_IO_START GPIO_NUM_39
 #define ODROID_GAMEPAD_IO_A GPIO_NUM_32
@@ -61,11 +61,11 @@ fail:
 #endif
 
 #if CONFIG_HW_ODROID_GO
-adc_oneshot_unit_handle_t adc1_handle;
-adc_oneshot_unit_init_cfg_t init_config1 = {
+adc_oneshot_unit_handle_t adc_handle;
+adc_oneshot_unit_init_cfg_t init_config = {
     .unit_id = ADC_UNIT_1,
 };
-adc_oneshot_chan_cfg_t config = {
+adc_oneshot_chan_cfg_t config_adc = {
     .atten = ADC_ATTEN_DB_12,
     .bitwidth = ADC_BITWIDTH_12,
 };
@@ -99,8 +99,8 @@ uint32_t input_read_raw(void)
     int joyX = 0;
     int joyY = 0;
 
-    adc_oneshot_read(adc1_handle, ODROID_GAMEPAD_IO_X, &joyX);
-    adc_oneshot_read(adc1_handle, ODROID_GAMEPAD_IO_Y, &joyY);
+    adc_oneshot_read(adc_handle, ODROID_GAMEPAD_IO_X, &joyX);
+    adc_oneshot_read(adc_handle, ODROID_GAMEPAD_IO_Y, &joyY);
 
     if (joyX > 2048 + 1024)
         state |= (1 << ODROID_INPUT_LEFT);
@@ -235,9 +235,9 @@ void input_init(void)
     fail:
 #else
 #if CONFIG_HW_ODROID_GO
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ODROID_GAMEPAD_IO_X, &config));
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ODROID_GAMEPAD_IO_Y, &config));
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &adc_handle));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, ODROID_GAMEPAD_IO_X, &config_adc));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, ODROID_GAMEPAD_IO_Y, &config_adc));
 #else
     if (ODROID_GAMEPAD_IO_UP != -1)
     {
