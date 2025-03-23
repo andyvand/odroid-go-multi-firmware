@@ -34,7 +34,7 @@ The official esp-idf version 5.0 or newer is required and to improve SD Card sup
 _Note: Those patches do not introduce breaking changes to non-GO (standard ESP32) projects and can safely be applied to your global esp-idf installation._
 
 ## Build Steps:
-1. Copy sdkconfig.odroid_go to sdkconfig
+1. Copy sdkconfig.odroid_go to sdkconfig or do `idf.py menuconfig` for custom targets.
 2. Compile firmware: `idf.py build`
 3. And then:
    - To produce image files: `python tools/pack.py`
