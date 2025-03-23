@@ -27,7 +27,7 @@ _Note: If you are familiar with esptool, you just have to flash `odroid-go-multi
 
 
 # Compilation
-The official esp-idf version 3.1 or newer is required and to improve SD Card support you should this patch:
+The official esp-idf version 5.0 or newer is required and to improve SD Card support you should this patch:
 
 - tools/patches/esp-idf-sdcard-patch.diff
 
