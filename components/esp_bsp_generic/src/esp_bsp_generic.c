@@ -632,7 +632,7 @@ esp_err_t bsp_sdcard_mount(void)
 #else
     host.slot = SPI2_HOST;
 #endif
-    host.max_freq_khz = 5000;
+    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = CONFIG_HW_SD_PIN_NUM_MOSI,
         .miso_io_num = CONFIG_HW_SD_PIN_NUM_MISO,
@@ -646,10 +646,21 @@ esp_err_t bsp_sdcard_mount(void)
         ESP_LOGE(TAG, "Failed to initialize bus.");
         return ret;
     }
+
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = CONFIG_HW_SD_PIN_NUM_CS;
     slot_config.host_id = host.slot;
-    return esp_vfs_fat_sdspi_mount(BSP_SD_MOUNT_POINT, &host, &slot_config, &mount_config, &bsp_sdcard);
+    ret = esp_vfs_fat_sdspi_mount(BSP_SD_MOUNT_POINT, &host, &slot_config, &mount_config, &bsp_sdcard);
+
+    if (ret != ESP_OK) {
+        if (ret == ESP_FAIL) {
+            ESP_LOGE(TAG, "Failed to mount filesystem.");
+        } else {
+            ESP_LOGE(TAG, "Failed to initialize the card (%s). Make sure SD card lines have pull-up resistors in place.", esp_err_to_name(ret));
+        }
+    }
+
+    return ret;
 #else
     const sdmmc_host_t host = SDMMC_HOST_DEFAULT();
     const sdmmc_slot_config_t slot_config = {
