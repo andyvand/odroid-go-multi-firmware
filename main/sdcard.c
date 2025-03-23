@@ -163,15 +163,17 @@ esp_err_t odroid_sdcard_close(void)
 esp_err_t odroid_sdcard_format(int fs_type)
 {
     esp_err_t err = ESP_FAIL;
+#if CONFIG_SOC_SDSPI
     sdspi_dev_handle_t handle;
+#endif
     const char *errmsg = "success!";
     sdmmc_card_t card;
     void *buffer = malloc(4096);
     DWORD partitions[] = {100, 0, 0, 0};
     BYTE drive = 0xFF;
 
-#ifdef TARGET_MRGC_G32
-    sdmmc_slot_config_t host_config = SDMMC_SLOT_CONFIG_DEFAULT();
+#if !CONFIG_SOC_SDSPI
+    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
     /* Note: For small devkits there may be no pullups on the board.
        This enables the internal pullups to help evaluate the driver quickly.
        However the internal pullups are not sufficient and not reliable,
@@ -182,14 +184,14 @@ esp_err_t odroid_sdcard_format(int fs_type)
 
     //Initialize all pins to avoid them floating
     //Set slot width to 4 to ignore other pin config on S3, which support at most 8 lines
-    host_config.width = 4;
+    slot_config.width = 4;
 #ifdef CONFIG_SOC_SDMMC_USE_GPIO_MATRIX
-    host_config.clk = CONFIG_BSP_SD_CLK;
-    host_config.cmd = CONFIG_BSP_SD_CMD;
-    host_config.d0 = CONFIG_BSP_SD_D0;
-    host_config.d1 = CONFIG_BSP_SD_D1;
-    host_config.d2 = CONFIG_BSP_SD_D2;
-    host_config.d3 = CONFIG_BSP_SD_D3;
+    slot_config.clk = CONFIG_BSP_SD_CLK;
+    slot_config.cmd = CONFIG_BSP_SD_CMD;
+    slot_config.d0 = CONFIG_BSP_SD_D0;
+    slot_config.d1 = CONFIG_BSP_SD_D1;
+    slot_config.d2 = CONFIG_BSP_SD_D2;
+    slot_config.d3 = CONFIG_BSP_SD_D3;
 #endif  // CONFIG_SOC_SDMMC_USE_GPIO_MATRIX
 #else
     spi_bus_config_t bus_cfg = {
@@ -209,8 +211,10 @@ esp_err_t odroid_sdcard_format(int fs_type)
     }
 #endif
 
-#ifndef TARGET_MRGC_G32
+#if CONFIG_SOC_SDSPI
     sdmmc_host_t config = SDSPI_HOST_DEFAULT();
+#else
+    sdmmc_host_t config = SDMMC_HOST_DEFAULT();
 #endif
 
     if (buffer == NULL) {
@@ -225,21 +229,13 @@ esp_err_t odroid_sdcard_format(int fs_type)
         goto _cleanup;
     }
 
-#ifndef TARGET_MRGC_G32
     err = (*config.init)();
     if (err != ESP_OK) {
         errmsg = "config.init() failed";
         goto _cleanup;
     }
-#else
-    err = (*host_config.init)();
-    if (err != ESP_OK) {
-        errmsg = "host_config.init() failed";
-        goto _cleanup;
-    }
-#endif
 
-#ifdef TARGET_MRGC_G32
+#if !CONFIG_SOC_SDSPI
     err = sdmmc_host_init();
 
     if (err != ESP_OK) {
@@ -247,7 +243,12 @@ esp_err_t odroid_sdcard_format(int fs_type)
         goto _cleanup;
     }
 
-    err = sdmmc_host_init_slot(host_config.slot, &slot_config);
+    err = sdmmc_host_init_slot(SDMMC_HOST_SLOT_1, &slot_config);
+
+    if (err != ESP_OK) {
+        errmsg = "sdmmc_host_init_slot() failed";
+        goto _cleanup;
+    }
 #else
     err = sdspi_host_init();
 
@@ -258,13 +259,13 @@ esp_err_t odroid_sdcard_format(int fs_type)
 
     err = sdspi_host_init_device(&host_config, &handle);
 
-    config.slot = handle;
-#endif
-
     if (err != ESP_OK) {
         errmsg = "sdspi_host_init_device() failed";
         goto _cleanup;
     }
+
+    config.slot = handle;
+#endif
 
     err = sdmmc_card_init(&config, &card);
     if (err != ESP_OK) {
@@ -307,13 +308,7 @@ _cleanup:
     }
 
     free(buffer);
-
-#ifdef TARGET_MRGC_G32
-    host_config.deinit();
-#else
     config.deinit();
-#endif
-
     ff_diskio_register_sdmmc(drive, NULL);
 
     return err;
