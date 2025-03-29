@@ -59,7 +59,7 @@ void ili9341_writeLE(const uint16_t *buffer)
     for (int y = 0; y < height; y += max_chunk_height) {
         int chunk_height = (y + max_chunk_height > height) ? (height - y) : max_chunk_height;
 
-        ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, left, top + y, width, y + chunk_height, (&buffer[width * y])));
+        ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, left, top + y, width, top + y + chunk_height, (&buffer[width * y])));
         xSemaphoreTake(lcd_semaphore, portMAX_DELAY);
     }
 }

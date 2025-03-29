@@ -56,7 +56,10 @@ static const char *TAG = "BSP-Gen";
 
 i2s_chan_handle_t i2s_tx_chan = NULL;
 static i2s_chan_handle_t i2s_rx_chan = NULL;
+
+#if defined(CONFIG_BSP_BUTTON_1_TYPE_ADC) || defined(CONFIG_BSP_BUTTON_2_TYPE_ADC) || defined(CONFIG_BSP_BUTTON_3_TYPE_ADC) || defined(CONFIG_BSP_BUTTON_4_TYPE_ADC) || defined(CONFIG_BSP_BUTTON_5_TYPE_ADC) || defined(CONFIG_BSP_BUTTON_6_TYPE_ADC) || defined(CONFIG_BSP_BUTTON_7_TYPE_ADC) || defined(CONFIG_BSP_BUTTON_8_TYPE_ADC) || defined(CONFIG_BSP_BUTTON_9_TYPE_ADC) || defined(CONFIG_BSP_BUTTON_10_TYPE_ADC)
 static adc_oneshot_unit_handle_t bsp_adc_handle = NULL;
+#endif
 
 /* Can be used for i2s_std_gpio_config_t and/or i2s_std_config_t initialization */
 #define BSP_I2S_GPIO_CFG       \
@@ -349,6 +352,87 @@ static const bsp_button_config_t bsp_button_config[] = {
     }
 #endif // CONFIG_BSP_BUTTON_7_TYPE_x
 #endif // CONFIG_BSP_BUTTONS_NUM >= 7
+    
+#if CONFIG_BSP_BUTTONS_NUM > 7
+#if CONFIG_BSP_BUTTON_8_TYPE_GPIO
+    {
+        .type = BSP_BUTTON_TYPE_GPIO,
+        .cfg.gpio = {
+            .gpio_num = CONFIG_BSP_BUTTON_8_GPIO,
+            .active_level = CONFIG_BSP_BUTTON_8_LEVEL,
+        }
+    },
+#elif CONFIG_BSP_BUTTON_8_TYPE_ADC
+    {
+        .type = BSP_BUTTON_TYPE_ADC,
+        .cfg.adc = {
+            .adc_channel = CONFIG_BSP_BUTTON_8_ADC_CHANNEL,
+            .button_index = BSP_BUTTON_8,
+#if CONFIG_HW_ODROID_GO
+            .min = 1025,
+            .max = 3073
+#else
+            .min = (CONFIG_BSP_BUTTON_8_ADC_VALUE - 100),
+            .max = (CONFIG_BSP_BUTTON_8_ADC_VALUE + 100)
+#endif
+        }
+    }
+#endif // CONFIG_BSP_BUTTON_8_TYPE_x
+#endif // CONFIG_BSP_BUTTONS_NUM >= 7
+
+#if CONFIG_BSP_BUTTONS_NUM > 8
+#if CONFIG_BSP_BUTTON_9_TYPE_GPIO
+    {
+        .type = BSP_BUTTON_TYPE_GPIO,
+        .cfg.gpio = {
+            .gpio_num = CONFIG_BSP_BUTTON_9_GPIO,
+            .active_level = CONFIG_BSP_BUTTON_9_LEVEL,
+        }
+    },
+#elif CONFIG_BSP_BUTTON_9_TYPE_ADC
+    {
+        .type = BSP_BUTTON_TYPE_ADC,
+        .cfg.adc = {
+            .adc_channel = CONFIG_BSP_BUTTON_9_ADC_CHANNEL,
+            .button_index = BSP_BUTTON_9,
+#if CONFIG_HW_ODROID_GO
+            .min = 1025,
+            .max = 3073
+#else
+            .min = (CONFIG_BSP_BUTTON_9_ADC_VALUE - 100),
+            .max = (CONFIG_BSP_BUTTON_9_ADC_VALUE + 100)
+#endif
+        }
+    }
+#endif // CONFIG_BSP_BUTTON_9_TYPE_x
+#endif // CONFIG_BSP_BUTTONS_NUM >= 8
+
+#if CONFIG_BSP_BUTTONS_NUM > 9
+#if CONFIG_BSP_BUTTON_10_TYPE_GPIO
+    {
+        .type = BSP_BUTTON_TYPE_GPIO,
+        .cfg.gpio = {
+            .gpio_num = CONFIG_BSP_BUTTON_10_GPIO,
+            .active_level = CONFIG_BSP_BUTTON_10_LEVEL,
+        }
+    },
+#elif CONFIG_BSP_BUTTON_10_TYPE_ADC
+    {
+        .type = BSP_BUTTON_TYPE_ADC,
+        .cfg.adc = {
+            .adc_channel = CONFIG_BSP_BUTTON_10_ADC_CHANNEL,
+            .button_index = BSP_BUTTON_10,
+#if CONFIG_HW_ODROID_GO
+            .min = 1025,
+            .max = 3073
+#else
+            .min = (CONFIG_BSP_BUTTON_10_ADC_VALUE - 100),
+            .max = (CONFIG_BSP_BUTTON_10_ADC_VALUE + 100)
+#endif
+        }
+    }
+#endif // CONFIG_BSP_BUTTON_10_TYPE_x
+#endif // CONFIG_BSP_BUTTONS_NUM >= 9
 };
 
 #if CONFIG_BSP_LED_TYPE_GPIO
@@ -632,7 +716,7 @@ esp_err_t bsp_sdcard_mount(void)
 #else
     host.slot = SPI2_HOST;
 #endif
-    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
+    host.max_freq_khz = 5000;
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = CONFIG_HW_SD_PIN_NUM_MOSI,
         .miso_io_num = CONFIG_HW_SD_PIN_NUM_MISO,
@@ -646,21 +730,10 @@ esp_err_t bsp_sdcard_mount(void)
         ESP_LOGE(TAG, "Failed to initialize bus.");
         return ret;
     }
-
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = CONFIG_HW_SD_PIN_NUM_CS;
     slot_config.host_id = host.slot;
-    ret = esp_vfs_fat_sdspi_mount(BSP_SD_MOUNT_POINT, &host, &slot_config, &mount_config, &bsp_sdcard);
-
-    if (ret != ESP_OK) {
-        if (ret == ESP_FAIL) {
-            ESP_LOGE(TAG, "Failed to mount filesystem.");
-        } else {
-            ESP_LOGE(TAG, "Failed to initialize the card (%s). Make sure SD card lines have pull-up resistors in place.", esp_err_to_name(ret));
-        }
-    }
-
-    return ret;
+    return esp_vfs_fat_sdspi_mount(BSP_SD_MOUNT_POINT, &host, &slot_config, &mount_config, &bsp_sdcard);
 #else
     const sdmmc_host_t host = SDMMC_HOST_DEFAULT();
     const sdmmc_slot_config_t slot_config = {
